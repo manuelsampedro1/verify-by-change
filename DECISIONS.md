@@ -90,6 +90,16 @@ Rationale:
 - Reusing the packet's changed-file section keeps verification guidance aligned with the review handoff.
 - The packet remains only a source of paths; it is not treated as proof that checks were executed.
 
+## Task Contract Metadata in Envelopes
+
+When `--review-packet --json-envelope` sees a rendered `## Task Contract` section, preserve the contract status, source, required-section count, missing sections, and placeholder markers in the envelope.
+
+Rationale:
+
+- Verification guidance is stronger when downstream tools can see whether it was planned against a complete task boundary.
+- The task contract is context metadata, not proof that checks ran, so it belongs beside `repo_readiness` in the envelope.
+- Keeping it optional avoids breaking existing Markdown output or callers that only need changed-file categories.
+
 ## Secret and Permission Paths Before Generic Extensions
 
 Classify secret material and authorization, approval, permission, receipt, guard, and deploy paths before generic language or config rules.

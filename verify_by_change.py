@@ -260,6 +260,26 @@ def review_packet_readiness(packet_path: pathlib.Path) -> dict[str, object] | No
     return summary
 
 
+def review_packet_task_contract(packet_path: pathlib.Path) -> dict[str, object] | None:
+    content = packet_path.read_text(encoding="utf-8")
+    section = markdown_section(content, "Task Contract")
+    if not section.strip():
+        return None
+
+    status = inline_metric(section, "Status")
+    if not status:
+        return None
+
+    return {
+        "present": True,
+        "source": first_inline_code(section, "Source"),
+        "status": status,
+        "required_sections": inline_metric(section, "Required sections"),
+        "missing_sections": list_metric(section, "Missing sections"),
+        "placeholder_markers": list_metric(section, "Placeholder markers"),
+    }
+
+
 def first_inline_code(markdown: str, label: str) -> str | None:
     match = re.search(rf"^{re.escape(label)}:\s+`([^`]+)`", markdown, flags=re.MULTILINE)
     return match.group(1) if match else None
@@ -289,6 +309,16 @@ def int_metric(markdown: str, label: str) -> int | None:
         return int(value)
     except ValueError:
         return None
+
+
+def list_metric(markdown: str, label: str) -> list[str]:
+    match = re.search(rf"^- {re.escape(label)}: (.+)$", markdown, flags=re.MULTILINE)
+    if not match:
+        return []
+    value = match.group(1).strip()
+    if value.lower() == "none":
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def score_metric(value: str) -> tuple[int | None, int | None]:
@@ -487,6 +517,7 @@ def json_envelope(
     classified: dict[str, dict[str, list[str]]],
     source: dict[str, str | bool | None],
     repo_readiness: dict[str, object] | None = None,
+    task_contract: dict[str, object] | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "schema_version": "verify-by-change.v1",
@@ -497,6 +528,8 @@ def json_envelope(
     }
     if repo_readiness is not None:
         payload["repo_readiness"] = repo_readiness
+    if task_contract is not None:
+        payload["task_contract"] = task_contract
     return payload
 
 
@@ -531,6 +564,7 @@ def main() -> int:
     args = parse_args()
     source: dict[str, str | bool | None]
     repo_readiness = None
+    task_contract = None
     context: dict[str, object] = {}
     if args.review_packet and (args.paths or args.repo):
         raise SystemExit("Use --review-packet by itself, without explicit paths or --repo.")
@@ -550,6 +584,7 @@ def main() -> int:
             raise SystemExit(f"Review packet not found: {packet_path}")
         paths = review_packet_changed_files(packet_path)
         repo_readiness = review_packet_readiness(packet_path)
+        task_contract = review_packet_task_contract(packet_path)
         packet_repo = review_packet_repo(packet_path)
         context = repo_context(packet_repo)
         source = {
@@ -581,7 +616,7 @@ def main() -> int:
 
     classified = classify(paths, context)
     if args.json_envelope:
-        output = json.dumps(json_envelope(paths, classified, source, repo_readiness), indent=2) + "\n"
+        output = json.dumps(json_envelope(paths, classified, source, repo_readiness, task_contract), indent=2) + "\n"
     elif args.json:
         output = json.dumps(classified, indent=2) + "\n"
     else:

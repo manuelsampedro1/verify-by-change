@@ -10,7 +10,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from verify_by_change import classify, has_pyproject_scripts, json_envelope, matching_path_rule, parse_status_paths, render_text, repo_changed_files, repo_context, review_packet_changed_files, review_packet_readiness, unique_ordered  # noqa: E402
+from verify_by_change import classify, has_pyproject_scripts, json_envelope, matching_path_rule, parse_status_paths, render_text, repo_changed_files, repo_context, review_packet_changed_files, review_packet_readiness, review_packet_task_contract, unique_ordered  # noqa: E402
 
 
 def run(*args: str, cwd: pathlib.Path) -> None:
@@ -350,6 +350,67 @@ Attention checks:
             self.assertEqual(readiness["warnings"], 2)
             self.assertEqual(readiness["failed"], 1)
             self.assertEqual(readiness["critical_failures"], 1)
+
+    def test_review_packet_task_contract_extracts_status_and_gaps(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            packet = pathlib.Path(raw) / "review-packet.md"
+            packet.write_text(
+                """# Review Packet
+
+## Task Contract
+
+Source: `/tmp/AGENT_TASK.md`
+
+- Status: `warn`
+- Required sections: `6/8`
+- Missing sections: Risks, Out of Scope
+- Placeholder markers: Objective
+
+```md
+# Agent Task
+```
+
+## Diff
+""",
+                encoding="utf-8",
+            )
+
+            task_contract = review_packet_task_contract(packet)
+
+            self.assertIsNotNone(task_contract)
+            self.assertEqual(task_contract["source"], "/tmp/AGENT_TASK.md")
+            self.assertEqual(task_contract["status"], "warn")
+            self.assertEqual(task_contract["required_sections"], "6/8")
+            self.assertEqual(task_contract["missing_sections"], ["Risks", "Out of Scope"])
+            self.assertEqual(task_contract["placeholder_markers"], ["Objective"])
+
+    def test_review_packet_task_contract_notes_clean_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            packet = pathlib.Path(raw) / "review-packet.md"
+            packet.write_text(
+                """# Review Packet
+
+## Task Contract
+
+Source: `/tmp/AGENT_TASK.md`
+
+- Status: `pass`
+- Required sections: `8/8`
+- Missing sections: none
+- Placeholder markers: none
+
+## Diff
+""",
+                encoding="utf-8",
+            )
+
+            task_contract = review_packet_task_contract(packet)
+
+            self.assertIsNotNone(task_contract)
+            self.assertEqual(task_contract["status"], "pass")
+            self.assertEqual(task_contract["required_sections"], "8/8")
+            self.assertEqual(task_contract["missing_sections"], [])
+            self.assertEqual(task_contract["placeholder_markers"], [])
 
 
 class CliTests(unittest.TestCase):
@@ -704,6 +765,82 @@ Source: `/tmp/readiness-contract.json`
             self.assertEqual(payload["repo_readiness"]["ready"], True)
             self.assertEqual(payload["repo_readiness"]["score"], 100)
             self.assertEqual(payload["repo_readiness"]["required_blockers"], 0)
+
+    def test_cli_json_envelope_includes_review_packet_task_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            packet = pathlib.Path(raw) / "review-packet.md"
+            packet.write_text(
+                """# Review Packet
+
+## Changed Files
+
+- `README.md`
+
+## Task Contract
+
+Source: `/tmp/AGENT_TASK.md`
+
+- Status: `warn`
+- Required sections: `6/8`
+- Missing sections: Risks, Out of Scope
+- Placeholder markers: Objective
+
+## Diff
+""",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "verify_by_change.py"),
+                    "--review-packet",
+                    str(packet),
+                    "--json-envelope",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["changed_files"], ["README.md"])
+            self.assertEqual(payload["task_contract"]["source"], "/tmp/AGENT_TASK.md")
+            self.assertEqual(payload["task_contract"]["status"], "warn")
+            self.assertEqual(payload["task_contract"]["required_sections"], "6/8")
+            self.assertEqual(payload["task_contract"]["missing_sections"], ["Risks", "Out of Scope"])
+            self.assertEqual(payload["task_contract"]["placeholder_markers"], ["Objective"])
+
+    def test_cli_json_envelope_omits_task_contract_when_review_packet_has_none(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            packet = pathlib.Path(raw) / "review-packet.md"
+            packet.write_text(
+                """# Review Packet
+
+## Changed Files
+
+- `README.md`
+
+## Diff
+""",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "verify_by_change.py"),
+                    "--review-packet",
+                    str(packet),
+                    "--json-envelope",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            payload = json.loads(result.stdout)
+            self.assertNotIn("task_contract", payload)
 
     def test_cli_rejects_review_packet_with_other_sources(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

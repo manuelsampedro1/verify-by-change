@@ -9,6 +9,7 @@ The problem: after a Codex edit, the next question is usually "what should I run
 - Reads changed files from a git repo or from explicit file paths.
 - Can read changed files from a `codex-review-packet` Markdown handoff.
 - When reading a review packet, can carry its `## Repo Readiness` summary into the JSON envelope.
+- When reading a review packet, can carry its `## Task Contract` status, missing sections, and placeholder markers into the JSON envelope.
 - Detects staged, unstaged, and untracked files when scanning a working tree.
 - Can combine a base-ref diff with current working-tree changes when a Codex run has both committed and uncommitted edits.
 - Buckets the change into simple categories such as docs, shell, Python, Python CLI context, web JS/TS, Node CLI context, config, Swift, GitHub Actions, GitHub workflows, secret material, and security-sensitive authorization or deploy paths.
@@ -103,6 +104,19 @@ python3 verify_by_change.py --review-packet /tmp/review-packet.md
 python3 verify_by_change.py --review-packet /tmp/review-packet.md --json-envelope
 ```
 
+If the packet includes `## Task Contract`, the JSON envelope includes `task_contract` metadata so downstream tools can see whether verification was planned against a complete task:
+
+```json
+{
+  "task_contract": {
+    "status": "pass",
+    "required_sections": "8/8",
+    "missing_sections": [],
+    "placeholder_markers": []
+  }
+}
+```
+
 Fail when automation expected changed files:
 
 ```sh
@@ -139,6 +153,43 @@ python3 verify_by_change.py action.yml .github/workflows/deploy-gate.yml >/tmp/v
 python3 /Users/manuelsampedro/Documents/Codex/2026-05-24/flagships/codex-review-packet/codex_review_packet.py --repo . --output /tmp/verify-review-packet.md
 python3 verify_by_change.py --review-packet /tmp/verify-review-packet.md >/tmp/verify-from-review-packet.txt
 python3 verify_by_change.py --review-packet /tmp/verify-review-packet.md --json-envelope >/tmp/verify-from-review-packet-envelope.json
+cat >/tmp/verify-task-contract.md <<'EOF'
+# Agent Task
+
+## Objective
+
+Verify task-contract metadata handoff.
+
+## Acceptance Criteria
+
+- JSON envelope includes task_contract metadata.
+
+## Context
+
+Review packets can now include task contracts.
+
+## Constraints
+
+- Keep verify-by-change standard-library only.
+
+## Expected Changes
+
+- Preserve task contract status in the envelope.
+
+## Verification
+
+- Run unit tests and a review-packet smoke.
+
+## Risks
+
+- Downstream tools could miss incomplete task contracts.
+
+## Out of Scope
+
+- Executing verification commands.
+EOF
+python3 /Users/manuelsampedro/Documents/Codex/2026-05-24/flagships/codex-review-packet/codex_review_packet.py --repo . --task-contract /tmp/verify-task-contract.md --output /tmp/verify-review-packet-task-contract.md
+python3 verify_by_change.py --review-packet /tmp/verify-review-packet-task-contract.md --json-envelope >/tmp/verify-from-task-contract-packet.json
 python3 verify_by_change.py --repo . --staged --json --output /tmp/verify-staged.json
 python3 verify_by_change.py verify_by_change.py README.md --json-envelope >/tmp/verify-envelope.json
 python3 verify_by_change.py --repo . --base HEAD --include-working-tree >/tmp/verify-base-plus-working-tree.txt
@@ -147,6 +198,7 @@ test -s /tmp/verify-output.txt
 test -s /tmp/verify-action-output.txt
 test -s /tmp/verify-from-review-packet.txt
 test -s /tmp/verify-from-review-packet-envelope.json
+grep -q '"task_contract"' /tmp/verify-from-task-contract-packet.json
 ```
 
 ## Files
