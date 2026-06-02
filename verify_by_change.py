@@ -110,6 +110,13 @@ def classify(paths: list[str]) -> dict[str, dict[str, list[str]]]:
 
 def render_text(classified: dict[str, dict[str, list[str]]]) -> str:
     lines = ["# Verification Checklist", ""]
+    if not classified:
+        lines.extend([
+            "No changed files detected.",
+            "",
+            "- Confirm the target ref, staged state, or working tree is what you intended to verify.",
+        ])
+        return "\n".join(lines).rstrip() + "\n"
     for name, payload in classified.items():
         lines.append(f"## {name.title()}")
         lines.append("")
@@ -126,6 +133,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repo", help="Optional repository path for git-based detection.")
     parser.add_argument("--base", help="Optional base ref, for example origin/main.")
     parser.add_argument("--staged", action="store_true", help="Use staged changes from --repo.")
+    parser.add_argument("--fail-on-empty", action="store_true", help="Exit with code 2 when no changed files are detected.")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of Markdown.")
     parser.add_argument("--output", help="Optional output file path.")
     return parser.parse_args()
@@ -154,6 +162,8 @@ def main() -> int:
     else:
         output = render_text(classified)
     write_or_print(output, args.output)
+    if args.fail_on_empty and not paths:
+        return 2
     return 0
 
 

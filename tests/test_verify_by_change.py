@@ -36,6 +36,12 @@ class VerifyByChangeTests(unittest.TestCase):
         self.assertIn("python3 -m py_compile", checklist)
         self.assertIn("## Docs", checklist)
 
+    def test_render_text_handles_empty_changes_explicitly(self) -> None:
+        checklist = render_text({})
+
+        self.assertIn("No changed files detected.", checklist)
+        self.assertIn("Confirm the target ref", checklist)
+
     def test_parse_status_paths_handles_renames(self) -> None:
         output = " M README.md\nA  script.sh\nR  old.txt -> new.txt\n?? scratch.js\n"
 
@@ -104,6 +110,61 @@ class CliTests(unittest.TestCase):
             payload = json.loads(out.read_text(encoding="utf-8"))
             self.assertEqual(payload["docs"]["files"], ["README.md"])
             self.assertEqual(payload["web"]["files"], ["app.js"])
+
+    def test_cli_empty_json_output_file(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = pathlib.Path(raw) / "repo"
+            repo.mkdir()
+            run("git", "init", cwd=repo)
+            run("git", "config", "user.name", "Test User", cwd=repo)
+            run("git", "config", "user.email", "test@example.com", cwd=repo)
+            (repo / "README.md").write_text("initial\n", encoding="utf-8")
+            run("git", "add", "README.md", cwd=repo)
+            run("git", "commit", "-m", "initial", cwd=repo)
+            out = pathlib.Path(raw) / "checks.json"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "verify_by_change.py"),
+                    "--repo",
+                    str(repo),
+                    "--json",
+                    "--output",
+                    str(out),
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            self.assertIn("Wrote verification checklist", result.stdout)
+            self.assertEqual(json.loads(out.read_text(encoding="utf-8")), {})
+
+    def test_cli_fail_on_empty_clean_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = pathlib.Path(raw)
+            run("git", "init", cwd=repo)
+            run("git", "config", "user.name", "Test User", cwd=repo)
+            run("git", "config", "user.email", "test@example.com", cwd=repo)
+            (repo / "README.md").write_text("initial\n", encoding="utf-8")
+            run("git", "add", "README.md", cwd=repo)
+            run("git", "commit", "-m", "initial", cwd=repo)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "verify_by_change.py"),
+                    "--repo",
+                    str(repo),
+                    "--fail-on-empty",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("No changed files detected.", result.stdout)
 
 
 if __name__ == "__main__":

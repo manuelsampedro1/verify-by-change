@@ -12,6 +12,7 @@ The problem: after a Codex edit, the next question is usually "what should I run
 - Prints a compact checklist with the most likely verification commands.
 - Supports JSON output for automation.
 - Writes output to a file when a handoff artifact is needed.
+- Prints an explicit empty-change message, with `--fail-on-empty` for CI guards.
 
 ## Why This Exists
 
@@ -48,6 +49,12 @@ Staged-only check:
 python3 verify_by_change.py --repo . --staged
 ```
 
+Fail when automation expected changed files:
+
+```sh
+python3 verify_by_change.py --repo . --fail-on-empty
+```
+
 Write an artifact:
 
 ```sh
@@ -68,6 +75,7 @@ python3 -m py_compile verify_by_change.py
 python3 -m unittest discover -s tests
 python3 verify_by_change.py verify_by_change.py README.md >/tmp/verify-output.txt
 python3 verify_by_change.py --repo . --staged --json --output /tmp/verify-staged.json
+python3 verify_by_change.py --repo . --fail-on-empty >/tmp/verify-empty-check.txt || test $? -eq 2
 test -s /tmp/verify-output.txt
 ```
 

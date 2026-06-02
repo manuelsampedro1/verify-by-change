@@ -29,3 +29,13 @@ Rationale:
 - Codex handoffs often include staged files, unstaged edits, and new files at the same time.
 - A verification checklist is weaker if it silently misses untracked files.
 - `--staged` remains available when a reviewer wants the narrower index-only view.
+
+## Explicit Empty Diffs
+
+Say when no changed files were detected, and let CI opt into failure with `--fail-on-empty`.
+
+Rationale:
+
+- An empty checklist can look like a rendering bug or a skipped scan.
+- Local users often just need the clarification, not a failing command.
+- Automation can use exit code `2` when a diff was expected but no files were found.
