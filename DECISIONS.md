@@ -39,3 +39,13 @@ Rationale:
 - An empty checklist can look like a rendering bug or a skipped scan.
 - Local users often just need the clarification, not a failing command.
 - Automation can use exit code `2` when a diff was expected but no files were found.
+
+## Base Diff Plus Working Tree
+
+Keep `--base` focused on committed changes by default, but allow `--include-working-tree` to merge in staged, unstaged, and untracked files.
+
+Rationale:
+
+- Some review flows want only the committed PR diff against a base ref.
+- Codex sessions often have both committed follow-ups and local draft edits in the same repo.
+- Making the merged mode explicit avoids surprising CI users while still supporting full-session verification.

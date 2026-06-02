@@ -71,7 +71,23 @@ def parse_status_paths(output: str) -> list[str]:
     return paths
 
 
-def repo_changed_files(repo: pathlib.Path, base: str | None, staged: bool = False) -> list[str]:
+def unique_ordered(paths: list[str]) -> list[str]:
+    seen: set[str] = set()
+    selected: list[str] = []
+    for path in paths:
+        if path in seen:
+            continue
+        selected.append(path)
+        seen.add(path)
+    return selected
+
+
+def repo_changed_files(
+    repo: pathlib.Path,
+    base: str | None,
+    staged: bool = False,
+    include_working_tree: bool = False,
+) -> list[str]:
     if staged:
         args = ["git", "-C", str(repo), "diff", "--cached", "--name-only"]
     elif base:
@@ -83,7 +99,14 @@ def repo_changed_files(repo: pathlib.Path, base: str | None, staged: bool = Fals
         raise SystemExit(result.stderr.strip() or "git diff failed")
     if not base and not staged:
         return parse_status_paths(result.stdout)
-    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    paths = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if base and include_working_tree:
+        status_args = ["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=all"]
+        status_result = subprocess.run(status_args, text=True, capture_output=True, check=False)
+        if status_result.returncode != 0:
+            raise SystemExit(status_result.stderr.strip() or "git status failed")
+        paths.extend(parse_status_paths(status_result.stdout))
+    return unique_ordered(paths)
 
 
 def classify(paths: list[str]) -> dict[str, dict[str, list[str]]]:
@@ -133,6 +156,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repo", help="Optional repository path for git-based detection.")
     parser.add_argument("--base", help="Optional base ref, for example origin/main.")
     parser.add_argument("--staged", action="store_true", help="Use staged changes from --repo.")
+    parser.add_argument(
+        "--include-working-tree",
+        action="store_true",
+        help="When --base is set, also include staged, unstaged, and untracked files.",
+    )
     parser.add_argument("--fail-on-empty", action="store_true", help="Exit with code 2 when no changed files are detected.")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of Markdown.")
     parser.add_argument("--output", help="Optional output file path.")
@@ -152,7 +180,12 @@ def main() -> int:
     if args.paths:
         paths = args.paths
     elif args.repo:
-        paths = repo_changed_files(pathlib.Path(args.repo).resolve(), args.base, staged=args.staged)
+        paths = repo_changed_files(
+            pathlib.Path(args.repo).resolve(),
+            args.base,
+            staged=args.staged,
+            include_working_tree=args.include_working_tree,
+        )
     else:
         raise SystemExit("Provide explicit paths or --repo.")
 
