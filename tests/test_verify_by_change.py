@@ -10,7 +10,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from verify_by_change import classify, json_envelope, matching_path_rule, parse_status_paths, render_text, repo_changed_files, review_packet_changed_files, unique_ordered  # noqa: E402
+from verify_by_change import classify, json_envelope, matching_path_rule, parse_status_paths, render_text, repo_changed_files, review_packet_changed_files, review_packet_readiness, unique_ordered  # noqa: E402
 
 
 def run(*args: str, cwd: pathlib.Path) -> None:
@@ -194,6 +194,85 @@ Base: `working tree`
 
             self.assertEqual(review_packet_changed_files(packet), [])
 
+    def test_review_packet_readiness_extracts_contract_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            packet = pathlib.Path(raw) / "review-packet.md"
+            packet.write_text(
+                """# Review Packet
+
+## Changed Files
+
+- `README.md`
+
+## Repo Readiness
+
+Source: `/tmp/readiness-contract.json`
+
+- Contract: `repo-flightcheck.agent-contract.v1`
+- Ready: `false`
+- Score: `96/100`
+- Threshold: `80`
+- Stack: `node`
+- Summary: `1` required blockers, `2` recommendations, `0` critical failures.
+
+Required before agent:
+
+- `WARN` Working tree: Working tree has changed paths.
+
+## Diff
+""",
+                encoding="utf-8",
+            )
+
+            readiness = review_packet_readiness(packet)
+
+            self.assertIsNotNone(readiness)
+            self.assertEqual(readiness["contract"], "repo-flightcheck.agent-contract.v1")
+            self.assertEqual(readiness["ready"], False)
+            self.assertEqual(readiness["score"], 96)
+            self.assertEqual(readiness["points_possible"], 100)
+            self.assertEqual(readiness["threshold"], 80)
+            self.assertEqual(readiness["stack"], "node")
+            self.assertEqual(readiness["required_blockers"], 1)
+            self.assertEqual(readiness["recommendations"], 2)
+            self.assertEqual(readiness["critical_failures"], 0)
+
+    def test_review_packet_readiness_extracts_full_report_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            packet = pathlib.Path(raw) / "review-packet.md"
+            packet.write_text(
+                """# Review Packet
+
+## Repo Readiness
+
+Source: `/tmp/readiness.json`
+
+- Score: `84/100`
+- Stack: `python`
+- Summary: `10` passed, `2` warnings, `1` failed, `1` critical failures.
+
+Attention checks:
+
+- `FAIL` Verification command: No reliable verification command detected.
+
+## Diff
+""",
+                encoding="utf-8",
+            )
+
+            readiness = review_packet_readiness(packet)
+
+            self.assertIsNotNone(readiness)
+            self.assertIsNone(readiness["contract"])
+            self.assertIsNone(readiness["ready"])
+            self.assertEqual(readiness["score"], 84)
+            self.assertEqual(readiness["points_possible"], 100)
+            self.assertEqual(readiness["stack"], "python")
+            self.assertEqual(readiness["passed"], 10)
+            self.assertEqual(readiness["warnings"], 2)
+            self.assertEqual(readiness["failed"], 1)
+            self.assertEqual(readiness["critical_failures"], 1)
+
 
 class CliTests(unittest.TestCase):
     def test_cli_json_output_file(self) -> None:
@@ -376,6 +455,53 @@ Base: `working tree`
             self.assertEqual(payload["changed_files"], ["README.md", "action.yml"])
             self.assertEqual(payload["categories"]["docs"]["files"], ["README.md"])
             self.assertEqual(payload["categories"]["github_action"]["files"], ["action.yml"])
+            self.assertNotIn("repo_readiness", payload)
+
+    def test_cli_json_envelope_includes_review_packet_readiness(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            packet = pathlib.Path(raw) / "review-packet.md"
+            packet.write_text(
+                """# Review Packet
+
+## Changed Files
+
+- `README.md`
+
+## Repo Readiness
+
+Source: `/tmp/readiness-contract.json`
+
+- Contract: `repo-flightcheck.agent-contract.v1`
+- Ready: `true`
+- Score: `100/100`
+- Threshold: `80`
+- Stack: `node`
+- Summary: `0` required blockers, `0` recommendations, `0` critical failures.
+
+## Diff
+""",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "verify_by_change.py"),
+                    "--review-packet",
+                    str(packet),
+                    "--json-envelope",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["changed_files"], ["README.md"])
+            self.assertEqual(payload["repo_readiness"]["contract"], "repo-flightcheck.agent-contract.v1")
+            self.assertEqual(payload["repo_readiness"]["ready"], True)
+            self.assertEqual(payload["repo_readiness"]["score"], 100)
+            self.assertEqual(payload["repo_readiness"]["required_blockers"], 0)
 
     def test_cli_rejects_review_packet_with_other_sources(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

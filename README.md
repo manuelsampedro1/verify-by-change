@@ -8,6 +8,7 @@ The problem: after a Codex edit, the next question is usually "what should I run
 
 - Reads changed files from a git repo or from explicit file paths.
 - Can read changed files from a `codex-review-packet` Markdown handoff.
+- When reading a review packet, can carry its `## Repo Readiness` summary into the JSON envelope.
 - Detects staged, unstaged, and untracked files when scanning a working tree.
 - Can combine a base-ref diff with current working-tree changes when a Codex run has both committed and uncommitted edits.
 - Buckets the change into simple categories such as docs, shell, Python, JS/TS, config, Swift, GitHub Actions, and GitHub workflows.
@@ -81,6 +82,7 @@ From a generated review packet:
 ```sh
 python3 /path/to/codex-review-packet/codex_review_packet.py --repo . --output /tmp/review-packet.md
 python3 verify_by_change.py --review-packet /tmp/review-packet.md
+python3 verify_by_change.py --review-packet /tmp/review-packet.md --json-envelope
 ```
 
 Fail when automation expected changed files:
@@ -118,6 +120,7 @@ python3 verify_by_change.py verify_by_change.py README.md >/tmp/verify-output.tx
 python3 verify_by_change.py action.yml .github/workflows/deploy-gate.yml >/tmp/verify-action-output.txt
 python3 /Users/manuelsampedro/Documents/Codex/2026-05-24/flagships/codex-review-packet/codex_review_packet.py --repo . --output /tmp/verify-review-packet.md
 python3 verify_by_change.py --review-packet /tmp/verify-review-packet.md >/tmp/verify-from-review-packet.txt
+python3 verify_by_change.py --review-packet /tmp/verify-review-packet.md --json-envelope >/tmp/verify-from-review-packet-envelope.json
 python3 verify_by_change.py --repo . --staged --json --output /tmp/verify-staged.json
 python3 verify_by_change.py verify_by_change.py README.md --json-envelope >/tmp/verify-envelope.json
 python3 verify_by_change.py --repo . --base HEAD --include-working-tree >/tmp/verify-base-plus-working-tree.txt
@@ -125,6 +128,7 @@ python3 verify_by_change.py --repo . --fail-on-empty >/tmp/verify-empty-check.tx
 test -s /tmp/verify-output.txt
 test -s /tmp/verify-action-output.txt
 test -s /tmp/verify-from-review-packet.txt
+test -s /tmp/verify-from-review-packet-envelope.json
 ```
 
 ## Files

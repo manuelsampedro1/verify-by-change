@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import shlex
 import subprocess
 from collections import OrderedDict
@@ -153,6 +154,100 @@ def review_packet_changed_files(packet_path: pathlib.Path) -> list[str]:
     return unique_ordered(inline_code_bullets(section))
 
 
+def review_packet_readiness(packet_path: pathlib.Path) -> dict[str, object] | None:
+    content = packet_path.read_text(encoding="utf-8")
+    section = markdown_section(content, "Repo Readiness")
+    if not section.strip():
+        return None
+
+    summary = {
+        "present": True,
+        "contract": inline_metric(section, "Contract"),
+        "ready": bool_metric(section, "Ready"),
+        "score": None,
+        "points_possible": None,
+        "threshold": int_metric(section, "Threshold"),
+        "stack": inline_metric(section, "Stack"),
+        "required_blockers": None,
+        "recommendations": None,
+        "passed": None,
+        "warnings": None,
+        "failed": None,
+        "critical_failures": None,
+    }
+
+    score = inline_metric(section, "Score")
+    if score:
+        summary["score"], summary["points_possible"] = score_metric(score)
+
+    summary_text = inline_summary_line(section)
+    if summary_text:
+        summary.update(summary_metrics(summary_text))
+
+    return summary
+
+
+def inline_metric(markdown: str, label: str) -> str | None:
+    match = re.search(rf"^- {re.escape(label)}: `([^`]+)`", markdown, flags=re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def bool_metric(markdown: str, label: str) -> bool | None:
+    value = inline_metric(markdown, label)
+    if value is None:
+        return None
+    if value.lower() == "true":
+        return True
+    if value.lower() == "false":
+        return False
+    return None
+
+
+def int_metric(markdown: str, label: str) -> int | None:
+    value = inline_metric(markdown, label)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def score_metric(value: str) -> tuple[int | None, int | None]:
+    if "/" not in value:
+        return int_or_none(value), None
+    left, right = value.split("/", 1)
+    return int_or_none(left), int_or_none(right)
+
+
+def inline_summary_line(markdown: str) -> str | None:
+    match = re.search(r"^- Summary: (.+)$", markdown, flags=re.MULTILINE)
+    return match.group(1).strip() if match else None
+
+
+def summary_metrics(summary: str) -> dict[str, int | None]:
+    return {
+        "required_blockers": labeled_count(summary, "required blockers"),
+        "recommendations": labeled_count(summary, "recommendations"),
+        "passed": labeled_count(summary, "passed"),
+        "warnings": labeled_count(summary, "warnings"),
+        "failed": labeled_count(summary, "failed"),
+        "critical_failures": labeled_count(summary, "critical failures"),
+    }
+
+
+def labeled_count(summary: str, label: str) -> int | None:
+    match = re.search(rf"`?(\d+)`?\s+{re.escape(label)}", summary)
+    return int(match.group(1)) if match else None
+
+
+def int_or_none(value: str) -> int | None:
+    try:
+        return int(value.strip())
+    except ValueError:
+        return None
+
+
 def markdown_section(markdown: str, title: str) -> str:
     lines = markdown.splitlines()
     selected: list[str] = []
@@ -233,14 +328,18 @@ def json_envelope(
     paths: list[str],
     classified: dict[str, dict[str, list[str]]],
     source: dict[str, str | bool | None],
+    repo_readiness: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "schema_version": "verify-by-change.v1",
         "source": source,
         "changed_files": paths,
         "empty": len(paths) == 0,
         "categories": classified,
     }
+    if repo_readiness is not None:
+        payload["repo_readiness"] = repo_readiness
+    return payload
 
 
 def parse_args() -> argparse.Namespace:
@@ -273,6 +372,7 @@ def write_or_print(output: str, output_path: str | None) -> None:
 def main() -> int:
     args = parse_args()
     source: dict[str, str | bool | None]
+    repo_readiness = None
     if args.review_packet and (args.paths or args.repo):
         raise SystemExit("Use --review-packet by itself, without explicit paths or --repo.")
 
@@ -290,6 +390,7 @@ def main() -> int:
         if not packet_path.exists():
             raise SystemExit(f"Review packet not found: {packet_path}")
         paths = review_packet_changed_files(packet_path)
+        repo_readiness = review_packet_readiness(packet_path)
         source = {
             "type": "review_packet",
             "repo": None,
@@ -318,7 +419,7 @@ def main() -> int:
 
     classified = classify(paths)
     if args.json_envelope:
-        output = json.dumps(json_envelope(paths, classified, source), indent=2) + "\n"
+        output = json.dumps(json_envelope(paths, classified, source, repo_readiness), indent=2) + "\n"
     elif args.json:
         output = json.dumps(classified, indent=2) + "\n"
     else:
