@@ -7,9 +7,11 @@ The problem: after a Codex edit, the next question is usually "what should I run
 ## What It Does
 
 - Reads changed files from a git repo or from explicit file paths.
-- Buckets the change into simple categories such as docs, shell, Python, JS/TS, and Swift.
+- Detects staged, unstaged, and untracked files when scanning a working tree.
+- Buckets the change into simple categories such as docs, shell, Python, JS/TS, config, and Swift.
 - Prints a compact checklist with the most likely verification commands.
 - Supports JSON output for automation.
+- Writes output to a file when a handoff artifact is needed.
 
 ## Why This Exists
 
@@ -40,6 +42,19 @@ JSON mode:
 python3 verify_by_change.py --repo . --json
 ```
 
+Staged-only check:
+
+```sh
+python3 verify_by_change.py --repo . --staged
+```
+
+Write an artifact:
+
+```sh
+python3 verify_by_change.py --repo . --output /tmp/verification-checklist.md
+python3 verify_by_change.py --repo . --json --output /tmp/verification-checklist.json
+```
+
 ## Status
 
 Working v1 with built-in rules. It is intentionally small and conservative.
@@ -50,12 +65,14 @@ Run from this repo:
 
 ```sh
 python3 -m py_compile verify_by_change.py
+python3 -m unittest discover -s tests
 python3 verify_by_change.py verify_by_change.py README.md >/tmp/verify-output.txt
+python3 verify_by_change.py --repo . --staged --json --output /tmp/verify-staged.json
 test -s /tmp/verify-output.txt
 ```
 
 ## Files
 
 - `verify_by_change.py`: CLI entrypoint.
+- `tests/`: working-tree detection, renderer, and CLI coverage.
 - `DECISIONS.md`: repo design notes.
-

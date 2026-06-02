@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import shlex
 import subprocess
 from collections import OrderedDict
 
@@ -40,6 +41,13 @@ RULES = OrderedDict(
             },
         ),
         (
+            "config",
+            {
+                "match": {".json", ".toml", ".yaml", ".yml"},
+                "commands": ["Review config syntax and referenced paths.", "Run the commands or workflows affected by the config change."],
+            },
+        ),
+        (
             "swift",
             {
                 "match": {".swift"},
@@ -50,13 +58,31 @@ RULES = OrderedDict(
 )
 
 
-def repo_changed_files(repo: pathlib.Path, base: str | None) -> list[str]:
-    args = ["git", "-C", str(repo), "diff", "--name-only"]
-    if base:
-        args.append(f"{base}...HEAD")
+def parse_status_paths(output: str) -> list[str]:
+    paths: list[str] = []
+    for line in output.splitlines():
+        if not line:
+            continue
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if path:
+            paths.append(path)
+    return paths
+
+
+def repo_changed_files(repo: pathlib.Path, base: str | None, staged: bool = False) -> list[str]:
+    if staged:
+        args = ["git", "-C", str(repo), "diff", "--cached", "--name-only"]
+    elif base:
+        args = ["git", "-C", str(repo), "diff", "--name-only", f"{base}...HEAD"]
+    else:
+        args = ["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=all"]
     result = subprocess.run(args, text=True, capture_output=True, check=False)
     if result.returncode != 0:
         raise SystemExit(result.stderr.strip() or "git diff failed")
+    if not base and not staged:
+        return parse_status_paths(result.stdout)
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
@@ -99,8 +125,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("paths", nargs="*", help="Explicit changed file paths.")
     parser.add_argument("--repo", help="Optional repository path for git-based detection.")
     parser.add_argument("--base", help="Optional base ref, for example origin/main.")
+    parser.add_argument("--staged", action="store_true", help="Use staged changes from --repo.")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of Markdown.")
+    parser.add_argument("--output", help="Optional output file path.")
     return parser.parse_args()
+
+
+def write_or_print(output: str, output_path: str | None) -> None:
+    if not output_path:
+        print(output, end="")
+        return
+    pathlib.Path(output_path).write_text(output, encoding="utf-8")
+    print(f"Wrote verification checklist to {shlex.quote(output_path)}")
 
 
 def main() -> int:
@@ -108,15 +144,16 @@ def main() -> int:
     if args.paths:
         paths = args.paths
     elif args.repo:
-        paths = repo_changed_files(pathlib.Path(args.repo).resolve(), args.base)
+        paths = repo_changed_files(pathlib.Path(args.repo).resolve(), args.base, staged=args.staged)
     else:
         raise SystemExit("Provide explicit paths or --repo.")
 
     classified = classify(paths)
     if args.json:
-        print(json.dumps(classified, indent=2))
+        output = json.dumps(classified, indent=2) + "\n"
     else:
-        print(render_text(classified), end="")
+        output = render_text(classified)
+    write_or_print(output, args.output)
     return 0
 
 
