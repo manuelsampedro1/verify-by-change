@@ -57,6 +57,44 @@ RULES = OrderedDict(
     ]
 )
 
+PATH_RULES = OrderedDict(
+    [
+        (
+            "github_action",
+            {
+                "paths": {"action.yml", "action.yaml"},
+                "commands": [
+                    "Validate action inputs, outputs, runtime, and required shell/tool dependencies.",
+                    "Run the repository's action contract checks, such as `make test`, `make build`, and `make lint` when available.",
+                    "Review fail-open/fail-closed behavior before shipping safety, deploy, or approval actions.",
+                ],
+            },
+        ),
+        (
+            "github_workflow",
+            {
+                "workflow_suffixes": {".yml", ".yaml"},
+                "commands": [
+                    "Review workflow triggers, permissions, secrets, and protected-branch assumptions.",
+                    "Run the local commands invoked by the changed workflow, not only YAML syntax checks.",
+                    "Check whether production or security-sensitive paths should fail closed.",
+                ],
+            },
+        ),
+    ]
+)
+
+
+def matching_path_rule(raw: str) -> tuple[str, dict[str, object]] | None:
+    normalized = raw.replace("\\", "/").lower()
+    suffix = pathlib.Path(normalized).suffix
+    for name, rule in PATH_RULES.items():
+        if normalized in rule.get("paths", set()):
+            return name, rule
+        if normalized.startswith(".github/workflows/") and suffix in rule.get("workflow_suffixes", set()):
+            return name, rule
+    return None
+
 
 def parse_status_paths(output: str) -> list[str]:
     paths: list[str] = []
@@ -113,6 +151,13 @@ def classify(paths: list[str]) -> dict[str, dict[str, list[str]]]:
     selected: dict[str, dict[str, list[str]]] = OrderedDict()
     uncategorized: list[str] = []
     for raw in paths:
+        path_rule = matching_path_rule(raw)
+        if path_rule:
+            name, rule = path_rule
+            bucket = selected.setdefault(name, {"files": [], "commands": list(rule["commands"])})
+            bucket["files"].append(raw)
+            continue
+
         suffix = pathlib.Path(raw).suffix.lower()
         matched = False
         for name, rule in RULES.items():
@@ -141,7 +186,7 @@ def render_text(classified: dict[str, dict[str, list[str]]]) -> str:
         ])
         return "\n".join(lines).rstrip() + "\n"
     for name, payload in classified.items():
-        lines.append(f"## {name.title()}")
+        lines.append(f"## {name.replace('_', ' ').title()}")
         lines.append("")
         lines.extend(f"- `{path}`" for path in payload["files"])
         lines.append("")

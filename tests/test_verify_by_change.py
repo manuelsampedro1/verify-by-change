@@ -10,7 +10,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from verify_by_change import classify, json_envelope, parse_status_paths, render_text, repo_changed_files, unique_ordered  # noqa: E402
+from verify_by_change import classify, json_envelope, matching_path_rule, parse_status_paths, render_text, repo_changed_files, unique_ordered  # noqa: E402
 
 
 def run(*args: str, cwd: pathlib.Path) -> None:
@@ -23,9 +23,25 @@ class VerifyByChangeTests(unittest.TestCase):
 
         self.assertEqual(classified["docs"]["files"], ["README.md"])
         self.assertEqual(classified["shell"]["files"], ["scripts/deploy.sh"])
-        self.assertEqual(classified["config"]["files"], [".github/workflows/ci.yml"])
+        self.assertEqual(classified["github_workflow"]["files"], [".github/workflows/ci.yml"])
         self.assertEqual(classified["swift"]["files"], ["Sources/App.swift"])
         self.assertEqual(classified["uncategorized"]["files"], ["asset.bin"])
+
+    def test_path_rules_take_precedence_for_github_actions(self) -> None:
+        classified = classify(["action.yml", ".github/workflows/deploy-gate.yaml", "config/settings.yml"])
+
+        self.assertEqual(classified["github_action"]["files"], ["action.yml"])
+        self.assertIn("fail-open/fail-closed", " ".join(classified["github_action"]["commands"]))
+        self.assertEqual(classified["github_workflow"]["files"], [".github/workflows/deploy-gate.yaml"])
+        self.assertIn("workflow triggers", " ".join(classified["github_workflow"]["commands"]))
+        self.assertEqual(classified["config"]["files"], ["config/settings.yml"])
+
+    def test_matching_path_rule_handles_windows_separators_and_case(self) -> None:
+        workflow_rule = matching_path_rule(".GITHUB\\workflows\\CI.YML")
+        action_rule = matching_path_rule("ACTION.YAML")
+
+        self.assertEqual(workflow_rule[0] if workflow_rule else None, "github_workflow")
+        self.assertEqual(action_rule[0] if action_rule else None, "github_action")
 
     def test_render_text_contains_files_and_commands(self) -> None:
         checklist = render_text(classify(["verify_by_change.py", "README.md"]))
@@ -35,6 +51,11 @@ class VerifyByChangeTests(unittest.TestCase):
         self.assertIn("`verify_by_change.py`", checklist)
         self.assertIn("python3 -m py_compile", checklist)
         self.assertIn("## Docs", checklist)
+
+    def test_render_text_humanizes_underscore_category_names(self) -> None:
+        checklist = render_text(classify(["action.yml"]))
+
+        self.assertIn("## Github Action", checklist)
 
     def test_render_text_handles_empty_changes_explicitly(self) -> None:
         checklist = render_text({})

@@ -9,7 +9,7 @@ The problem: after a Codex edit, the next question is usually "what should I run
 - Reads changed files from a git repo or from explicit file paths.
 - Detects staged, unstaged, and untracked files when scanning a working tree.
 - Can combine a base-ref diff with current working-tree changes when a Codex run has both committed and uncommitted edits.
-- Buckets the change into simple categories such as docs, shell, Python, JS/TS, config, and Swift.
+- Buckets the change into simple categories such as docs, shell, Python, JS/TS, config, Swift, GitHub Actions, and GitHub workflows.
 - Prints a compact checklist with the most likely verification commands.
 - Supports JSON output for automation.
 - Supports an optional JSON envelope with schema, source, changed files, empty state, and categories.
@@ -43,6 +43,12 @@ With explicit files:
 
 ```sh
 python3 verify_by_change.py README.md scripts/deploy.sh
+```
+
+GitHub Action and workflow changes get path-specific guidance:
+
+```sh
+python3 verify_by_change.py action.yml .github/workflows/deploy-gate.yml
 ```
 
 JSON mode:
@@ -101,11 +107,13 @@ make lint
 python3 -m py_compile verify_by_change.py
 python3 -m unittest discover -s tests
 python3 verify_by_change.py verify_by_change.py README.md >/tmp/verify-output.txt
+python3 verify_by_change.py action.yml .github/workflows/deploy-gate.yml >/tmp/verify-action-output.txt
 python3 verify_by_change.py --repo . --staged --json --output /tmp/verify-staged.json
 python3 verify_by_change.py verify_by_change.py README.md --json-envelope >/tmp/verify-envelope.json
 python3 verify_by_change.py --repo . --base HEAD --include-working-tree >/tmp/verify-base-plus-working-tree.txt
 python3 verify_by_change.py --repo . --fail-on-empty >/tmp/verify-empty-check.txt || test $? -eq 2
 test -s /tmp/verify-output.txt
+test -s /tmp/verify-action-output.txt
 ```
 
 ## Files

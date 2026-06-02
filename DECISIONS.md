@@ -69,3 +69,13 @@ Rationale:
 - A small repo still needs fast local reproduction for reviewers and automation.
 - Standard `make test`, `make build`, and `make lint` commands make CI parity obvious.
 - Keeping metadata lightweight improves trust without adding runtime dependencies or fake complexity.
+
+## Path-Specific Agent Safety Checks
+
+Classify `action.yml`, `action.yaml`, and `.github/workflows/*.{yml,yaml}` before generic extension-based config rules.
+
+Rationale:
+
+- GitHub Action and workflow changes often affect deploy gates, permissions, secrets, and fail-open behavior.
+- Treating them as generic YAML hides the exact review questions that matter for agent safety.
+- Path-specific rules keep the tool small while making high-risk automation changes easier to verify honestly.
