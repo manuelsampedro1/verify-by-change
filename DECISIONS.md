@@ -79,3 +79,13 @@ Rationale:
 - GitHub Action and workflow changes often affect deploy gates, permissions, secrets, and fail-open behavior.
 - Treating them as generic YAML hides the exact review questions that matter for agent safety.
 - Path-specific rules keep the tool small while making high-risk automation changes easier to verify honestly.
+
+## Review Packet as a Path Source
+
+Allow `--review-packet` to read changed files from a `codex-review-packet` Markdown handoff.
+
+Rationale:
+
+- Reviewers sometimes have the packet artifact but not the original repo state.
+- Reusing the packet's changed-file section keeps verification guidance aligned with the review handoff.
+- The packet remains only a source of paths; it is not treated as proof that checks were executed.

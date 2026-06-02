@@ -147,6 +147,40 @@ def repo_changed_files(
     return unique_ordered(paths)
 
 
+def review_packet_changed_files(packet_path: pathlib.Path) -> list[str]:
+    content = packet_path.read_text(encoding="utf-8")
+    section = markdown_section(content, "Changed Files")
+    return unique_ordered(inline_code_bullets(section))
+
+
+def markdown_section(markdown: str, title: str) -> str:
+    lines = markdown.splitlines()
+    selected: list[str] = []
+    inside = False
+    for line in lines:
+        if line.startswith("## "):
+            if inside:
+                break
+            inside = line[3:].strip() == title
+            continue
+        if inside:
+            selected.append(line)
+    return "\n".join(selected)
+
+
+def inline_code_bullets(markdown: str) -> list[str]:
+    paths: list[str] = []
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("- "):
+            continue
+        if stripped == "- No changed files detected.":
+            continue
+        if stripped.startswith("- `") and stripped.endswith("`"):
+            paths.append(stripped[3:-1])
+    return paths
+
+
 def classify(paths: list[str]) -> dict[str, dict[str, list[str]]]:
     selected: dict[str, dict[str, list[str]]] = OrderedDict()
     uncategorized: list[str] = []
@@ -213,6 +247,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*", help="Explicit changed file paths.")
     parser.add_argument("--repo", help="Optional repository path for git-based detection.")
+    parser.add_argument("--review-packet", help="Optional codex-review-packet Markdown file to read changed files from.")
     parser.add_argument("--base", help="Optional base ref, for example origin/main.")
     parser.add_argument("--staged", action="store_true", help="Use staged changes from --repo.")
     parser.add_argument(
@@ -238,6 +273,9 @@ def write_or_print(output: str, output_path: str | None) -> None:
 def main() -> int:
     args = parse_args()
     source: dict[str, str | bool | None]
+    if args.review_packet and (args.paths or args.repo):
+        raise SystemExit("Use --review-packet by itself, without explicit paths or --repo.")
+
     if args.paths:
         paths = args.paths
         source = {
@@ -246,6 +284,19 @@ def main() -> int:
             "base": None,
             "staged": False,
             "include_working_tree": False,
+        }
+    elif args.review_packet:
+        packet_path = pathlib.Path(args.review_packet).resolve()
+        if not packet_path.exists():
+            raise SystemExit(f"Review packet not found: {packet_path}")
+        paths = review_packet_changed_files(packet_path)
+        source = {
+            "type": "review_packet",
+            "repo": None,
+            "base": None,
+            "staged": False,
+            "include_working_tree": False,
+            "review_packet": str(packet_path),
         }
     elif args.repo:
         repo = pathlib.Path(args.repo).resolve()

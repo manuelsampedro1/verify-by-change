@@ -7,6 +7,7 @@ The problem: after a Codex edit, the next question is usually "what should I run
 ## What It Does
 
 - Reads changed files from a git repo or from explicit file paths.
+- Can read changed files from a `codex-review-packet` Markdown handoff.
 - Detects staged, unstaged, and untracked files when scanning a working tree.
 - Can combine a base-ref diff with current working-tree changes when a Codex run has both committed and uncommitted edits.
 - Buckets the change into simple categories such as docs, shell, Python, JS/TS, config, Swift, GitHub Actions, and GitHub workflows.
@@ -75,6 +76,13 @@ Base diff plus current working tree:
 python3 verify_by_change.py --repo . --base origin/main --include-working-tree
 ```
 
+From a generated review packet:
+
+```sh
+python3 /path/to/codex-review-packet/codex_review_packet.py --repo . --output /tmp/review-packet.md
+python3 verify_by_change.py --review-packet /tmp/review-packet.md
+```
+
 Fail when automation expected changed files:
 
 ```sh
@@ -108,12 +116,15 @@ python3 -m py_compile verify_by_change.py
 python3 -m unittest discover -s tests
 python3 verify_by_change.py verify_by_change.py README.md >/tmp/verify-output.txt
 python3 verify_by_change.py action.yml .github/workflows/deploy-gate.yml >/tmp/verify-action-output.txt
+python3 /Users/manuelsampedro/Documents/Codex/2026-05-24/flagships/codex-review-packet/codex_review_packet.py --repo . --output /tmp/verify-review-packet.md
+python3 verify_by_change.py --review-packet /tmp/verify-review-packet.md >/tmp/verify-from-review-packet.txt
 python3 verify_by_change.py --repo . --staged --json --output /tmp/verify-staged.json
 python3 verify_by_change.py verify_by_change.py README.md --json-envelope >/tmp/verify-envelope.json
 python3 verify_by_change.py --repo . --base HEAD --include-working-tree >/tmp/verify-base-plus-working-tree.txt
 python3 verify_by_change.py --repo . --fail-on-empty >/tmp/verify-empty-check.txt || test $? -eq 2
 test -s /tmp/verify-output.txt
 test -s /tmp/verify-action-output.txt
+test -s /tmp/verify-from-review-packet.txt
 ```
 
 ## Files

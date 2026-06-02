@@ -10,7 +10,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from verify_by_change import classify, json_envelope, matching_path_rule, parse_status_paths, render_text, repo_changed_files, unique_ordered  # noqa: E402
+from verify_by_change import classify, json_envelope, matching_path_rule, parse_status_paths, render_text, repo_changed_files, review_packet_changed_files, unique_ordered  # noqa: E402
 
 
 def run(*args: str, cwd: pathlib.Path) -> None:
@@ -150,6 +150,49 @@ class VerifyByChangeTests(unittest.TestCase):
                 repo_changed_files(repo, base="base", include_working_tree=True),
                 ["README.md", "package.json", "scratch.py"],
             )
+
+    def test_review_packet_changed_files_extracts_changed_file_bullets(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            packet = pathlib.Path(raw) / "review-packet.md"
+            packet.write_text(
+                """# Review Packet
+
+Repo: `/tmp/repo`
+Base: `working tree`
+
+## Changed Files
+
+- `README.md`
+- `src/app.py`
+- `README.md`
+
+## Review Map
+
+### Product and docs
+
+- `README.md`
+""",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(review_packet_changed_files(packet), ["README.md", "src/app.py"])
+
+    def test_review_packet_changed_files_handles_empty_packet_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            packet = pathlib.Path(raw) / "review-packet.md"
+            packet.write_text(
+                """# Review Packet
+
+## Changed Files
+
+- No changed files detected.
+
+## Diff
+""",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(review_packet_changed_files(packet), [])
 
 
 class CliTests(unittest.TestCase):
@@ -295,6 +338,85 @@ class CliTests(unittest.TestCase):
 
             self.assertIn("`README.md`", result.stdout)
             self.assertIn("`scratch.py`", result.stdout)
+
+    def test_cli_can_read_paths_from_review_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            packet = pathlib.Path(raw) / "review-packet.md"
+            packet.write_text(
+                """# Review Packet
+
+Repo: `/tmp/repo`
+Base: `working tree`
+
+## Changed Files
+
+- `README.md`
+- `action.yml`
+
+## Review Map
+""",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "verify_by_change.py"),
+                    "--review-packet",
+                    str(packet),
+                    "--json-envelope",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["source"]["type"], "review_packet")
+            self.assertEqual(payload["changed_files"], ["README.md", "action.yml"])
+            self.assertEqual(payload["categories"]["docs"]["files"], ["README.md"])
+            self.assertEqual(payload["categories"]["github_action"]["files"], ["action.yml"])
+
+    def test_cli_rejects_review_packet_with_other_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            packet = pathlib.Path(raw) / "review-packet.md"
+            packet.write_text("# Review Packet\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "verify_by_change.py"),
+                    "README.md",
+                    "--review-packet",
+                    str(packet),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Use --review-packet by itself", result.stderr)
+
+    def test_cli_reports_missing_review_packet_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            missing = pathlib.Path(raw) / "missing.md"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "verify_by_change.py"),
+                    "--review-packet",
+                    str(missing),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Review packet not found", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
 
     def test_cli_fail_on_empty_clean_repo(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
