@@ -10,7 +10,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from verify_by_change import classify, json_envelope, matching_path_rule, parse_status_paths, render_text, repo_changed_files, review_packet_changed_files, review_packet_readiness, unique_ordered  # noqa: E402
+from verify_by_change import classify, json_envelope, matching_path_rule, parse_status_paths, render_text, repo_changed_files, repo_context, review_packet_changed_files, review_packet_readiness, unique_ordered  # noqa: E402
 
 
 def run(*args: str, cwd: pathlib.Path) -> None:
@@ -35,6 +35,34 @@ class VerifyByChangeTests(unittest.TestCase):
         self.assertEqual(classified["github_workflow"]["files"], [".github/workflows/deploy-gate.yaml"])
         self.assertIn("workflow triggers", " ".join(classified["github_workflow"]["commands"]))
         self.assertEqual(classified["config"]["files"], ["config/settings.yml"])
+
+    def test_js_paths_stay_web_without_node_cli_context(self) -> None:
+        classified = classify(["app.js"])
+
+        self.assertEqual(classified["web"]["files"], ["app.js"])
+        self.assertNotIn("node_cli", classified)
+
+    def test_node_cli_context_classifies_js_as_cli_runtime(self) -> None:
+        classified = classify(["src/cli.js"], {"node_cli": True})
+
+        self.assertEqual(classified["node_cli"]["files"], ["src/cli.js"])
+        self.assertIn("Node test/build", " ".join(classified["node_cli"]["commands"]))
+        self.assertNotIn("web", classified)
+
+    def test_repo_context_detects_node_cli_package(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = pathlib.Path(raw)
+            (repo / "package.json").write_text(
+                json.dumps(
+                    {
+                        "bin": {"demo": "bin/demo.js"},
+                        "scripts": {"test": "node --test", "build": "node scripts/build.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(repo_context(repo), {"node_cli": True})
 
     def test_matching_path_rule_handles_windows_separators_and_case(self) -> None:
         workflow_rule = matching_path_rule(".GITHUB\\workflows\\CI.YML")
@@ -418,6 +446,44 @@ class CliTests(unittest.TestCase):
             self.assertIn("`README.md`", result.stdout)
             self.assertIn("`scratch.py`", result.stdout)
 
+    def test_cli_repo_scan_uses_node_cli_context(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = pathlib.Path(raw)
+            run("git", "init", cwd=repo)
+            run("git", "config", "user.name", "Test User", cwd=repo)
+            run("git", "config", "user.email", "test@example.com", cwd=repo)
+            (repo / "package.json").write_text(
+                json.dumps(
+                    {
+                        "bin": {"demo": "bin/demo.js"},
+                        "scripts": {"test": "node --test", "build": "node scripts/build.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            run("git", "add", "package.json", cwd=repo)
+            run("git", "commit", "-m", "initial", cwd=repo)
+            (repo / "src").mkdir()
+            (repo / "src" / "cli.js").write_text("console.log('ok')\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "verify_by_change.py"),
+                    "--repo",
+                    str(repo),
+                    "--json",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["node_cli"]["files"], ["src/cli.js"])
+            self.assertIn("Node test/build", " ".join(payload["node_cli"]["commands"]))
+            self.assertNotIn("web", payload)
+
     def test_cli_can_read_paths_from_review_packet(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             packet = pathlib.Path(raw) / "review-packet.md"
@@ -456,6 +522,54 @@ Base: `working tree`
             self.assertEqual(payload["categories"]["docs"]["files"], ["README.md"])
             self.assertEqual(payload["categories"]["github_action"]["files"], ["action.yml"])
             self.assertNotIn("repo_readiness", payload)
+
+    def test_cli_review_packet_uses_packet_repo_context(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = pathlib.Path(raw) / "repo"
+            repo.mkdir()
+            (repo / "package.json").write_text(
+                json.dumps(
+                    {
+                        "bin": {"demo": "bin/demo.js"},
+                        "scripts": {"test": "node --test", "lint": "node scripts/lint.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            packet = pathlib.Path(raw) / "review-packet.md"
+            packet.write_text(
+                f"""# Review Packet
+
+Repo: `{repo}`
+Base: `working tree`
+
+## Changed Files
+
+- `src/cli.js`
+
+## Review Map
+""",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "verify_by_change.py"),
+                    "--review-packet",
+                    str(packet),
+                    "--json-envelope",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            payload = json.loads(result.stdout)
+            self.assertEqual(pathlib.Path(payload["source"]["repo"]).resolve(), repo.resolve())
+            self.assertEqual(payload["changed_files"], ["src/cli.js"])
+            self.assertEqual(payload["categories"]["node_cli"]["files"], ["src/cli.js"])
+            self.assertNotIn("web", payload["categories"])
 
     def test_cli_json_envelope_includes_review_packet_readiness(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

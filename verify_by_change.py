@@ -11,6 +11,12 @@ import shlex
 import subprocess
 from collections import OrderedDict
 
+NODE_CODE_EXTENSIONS = {".js", ".mjs", ".cjs", ".ts"}
+NODE_CLI_COMMANDS = [
+    "Run the closest Node test/build command for the changed CLI or library path.",
+    "Exercise the affected CLI/script path with a small safe input.",
+]
+
 RULES = OrderedDict(
     [
         (
@@ -154,6 +160,15 @@ def review_packet_changed_files(packet_path: pathlib.Path) -> list[str]:
     return unique_ordered(inline_code_bullets(section))
 
 
+def review_packet_repo(packet_path: pathlib.Path) -> pathlib.Path | None:
+    content = packet_path.read_text(encoding="utf-8")
+    repo = first_inline_code(content, "Repo")
+    if not repo:
+        return None
+    path = pathlib.Path(repo)
+    return path if path.exists() else None
+
+
 def review_packet_readiness(packet_path: pathlib.Path) -> dict[str, object] | None:
     content = packet_path.read_text(encoding="utf-8")
     section = markdown_section(content, "Repo Readiness")
@@ -185,6 +200,11 @@ def review_packet_readiness(packet_path: pathlib.Path) -> dict[str, object] | No
         summary.update(summary_metrics(summary_text))
 
     return summary
+
+
+def first_inline_code(markdown: str, label: str) -> str | None:
+    match = re.search(rf"^{re.escape(label)}:\s+`([^`]+)`", markdown, flags=re.MULTILINE)
+    return match.group(1) if match else None
 
 
 def inline_metric(markdown: str, label: str) -> str | None:
@@ -276,7 +296,44 @@ def inline_code_bullets(markdown: str) -> list[str]:
     return paths
 
 
-def classify(paths: list[str]) -> dict[str, dict[str, list[str]]]:
+def repo_context(repo: pathlib.Path | None) -> dict[str, object]:
+    if repo is None:
+        return {"node_cli": False}
+
+    package_json = repo / "package.json"
+    if not package_json.exists():
+        return {"node_cli": False}
+
+    try:
+        package = json.loads(package_json.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"node_cli": False}
+
+    bin_field = package.get("bin")
+    scripts = package.get("scripts", {})
+    has_bin = isinstance(bin_field, (str, dict)) and bool(bin_field)
+    has_node_scripts = isinstance(scripts, dict) and any(
+        name in scripts for name in ("test", "build", "lint", "check")
+    )
+    return {"node_cli": has_bin and has_node_scripts}
+
+
+def node_cli_change(raw: str, context: dict[str, object]) -> bool:
+    suffix = pathlib.Path(raw).suffix.lower()
+    if suffix not in NODE_CODE_EXTENSIONS:
+        return False
+
+    normalized = raw.replace("\\", "/").lower()
+    stem = pathlib.Path(normalized).stem
+    if normalized.startswith(("bin/", "cli/")) or stem == "cli":
+        return True
+    if stem == "index" and context.get("node_cli"):
+        return True
+    return bool(context.get("node_cli"))
+
+
+def classify(paths: list[str], context: dict[str, object] | None = None) -> dict[str, dict[str, list[str]]]:
+    context = context or {}
     selected: dict[str, dict[str, list[str]]] = OrderedDict()
     uncategorized: list[str] = []
     for raw in paths:
@@ -288,6 +345,11 @@ def classify(paths: list[str]) -> dict[str, dict[str, list[str]]]:
             continue
 
         suffix = pathlib.Path(raw).suffix.lower()
+        if node_cli_change(raw, context):
+            bucket = selected.setdefault("node_cli", {"files": [], "commands": list(NODE_CLI_COMMANDS)})
+            bucket["files"].append(raw)
+            continue
+
         matched = False
         for name, rule in RULES.items():
             if suffix in rule["match"]:
@@ -373,6 +435,7 @@ def main() -> int:
     args = parse_args()
     source: dict[str, str | bool | None]
     repo_readiness = None
+    context: dict[str, object] = {}
     if args.review_packet and (args.paths or args.repo):
         raise SystemExit("Use --review-packet by itself, without explicit paths or --repo.")
 
@@ -391,9 +454,11 @@ def main() -> int:
             raise SystemExit(f"Review packet not found: {packet_path}")
         paths = review_packet_changed_files(packet_path)
         repo_readiness = review_packet_readiness(packet_path)
+        packet_repo = review_packet_repo(packet_path)
+        context = repo_context(packet_repo)
         source = {
             "type": "review_packet",
-            "repo": None,
+            "repo": str(packet_repo) if packet_repo else None,
             "base": None,
             "staged": False,
             "include_working_tree": False,
@@ -401,6 +466,7 @@ def main() -> int:
         }
     elif args.repo:
         repo = pathlib.Path(args.repo).resolve()
+        context = repo_context(repo)
         paths = repo_changed_files(
             repo,
             args.base,
@@ -417,7 +483,7 @@ def main() -> int:
     else:
         raise SystemExit("Provide explicit paths or --repo.")
 
-    classified = classify(paths)
+    classified = classify(paths, context)
     if args.json_envelope:
         output = json.dumps(json_envelope(paths, classified, source, repo_readiness), indent=2) + "\n"
     elif args.json:
