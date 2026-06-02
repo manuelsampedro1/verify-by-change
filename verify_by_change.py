@@ -16,6 +16,11 @@ NODE_CLI_COMMANDS = [
     "Run the closest Node test/build command for the changed CLI or library path.",
     "Exercise the affected CLI/script path with a small safe input.",
 ]
+PYTHON_CLI_COMMANDS = [
+    "Run `python3 -m pip install -e .` in a clean environment or current virtualenv.",
+    "Exercise the affected console script with `--help` or a small safe input.",
+    "Run `python3 -m unittest discover -s tests` or the closest targeted Python tests.",
+]
 
 RULES = OrderedDict(
     [
@@ -298,24 +303,42 @@ def inline_code_bullets(markdown: str) -> list[str]:
 
 def repo_context(repo: pathlib.Path | None) -> dict[str, object]:
     if repo is None:
-        return {"node_cli": False}
+        return {"node_cli": False, "python_cli": False}
 
     package_json = repo / "package.json"
-    if not package_json.exists():
-        return {"node_cli": False}
+    node_cli = False
+    if package_json.exists():
+        try:
+            package = json.loads(package_json.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            package = {}
 
-    try:
-        package = json.loads(package_json.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {"node_cli": False}
+        bin_field = package.get("bin")
+        scripts = package.get("scripts", {})
+        has_bin = isinstance(bin_field, (str, dict)) and bool(bin_field)
+        has_node_scripts = isinstance(scripts, dict) and any(
+            name in scripts for name in ("test", "build", "lint", "check")
+        )
+        node_cli = has_bin and has_node_scripts
 
-    bin_field = package.get("bin")
-    scripts = package.get("scripts", {})
-    has_bin = isinstance(bin_field, (str, dict)) and bool(bin_field)
-    has_node_scripts = isinstance(scripts, dict) and any(
-        name in scripts for name in ("test", "build", "lint", "check")
-    )
-    return {"node_cli": has_bin and has_node_scripts}
+    pyproject = repo / "pyproject.toml"
+    python_cli = pyproject.exists() and has_pyproject_scripts(pyproject.read_text(encoding="utf-8"))
+    return {"node_cli": node_cli, "python_cli": python_cli}
+
+
+def has_pyproject_scripts(pyproject: str) -> bool:
+    in_scripts = False
+    for raw_line in pyproject.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        heading = re.match(r"^\[([^\]]+)\]$", line)
+        if heading:
+            in_scripts = heading.group(1).strip() == "project.scripts"
+            continue
+        if in_scripts and re.match(r"^[A-Za-z0-9_.-]+\s*=\s*['\"][^'\"]+['\"]", line):
+            return True
+    return False
 
 
 def node_cli_change(raw: str, context: dict[str, object]) -> bool:
@@ -330,6 +353,22 @@ def node_cli_change(raw: str, context: dict[str, object]) -> bool:
     if stem == "index" and context.get("node_cli"):
         return True
     return bool(context.get("node_cli"))
+
+
+def python_cli_change(raw: str, context: dict[str, object]) -> bool:
+    if not context.get("python_cli"):
+        return False
+
+    normalized = raw.replace("\\", "/").lower()
+    suffix = pathlib.Path(normalized).suffix
+    stem = pathlib.Path(normalized).stem
+    if normalized == "pyproject.toml":
+        return True
+    if suffix != ".py":
+        return False
+    if stem in {"cli", "__main__"}:
+        return True
+    return normalized.startswith(("src/", "bin/", "cli/"))
 
 
 def classify(paths: list[str], context: dict[str, object] | None = None) -> dict[str, dict[str, list[str]]]:
@@ -347,6 +386,10 @@ def classify(paths: list[str], context: dict[str, object] | None = None) -> dict
         suffix = pathlib.Path(raw).suffix.lower()
         if node_cli_change(raw, context):
             bucket = selected.setdefault("node_cli", {"files": [], "commands": list(NODE_CLI_COMMANDS)})
+            bucket["files"].append(raw)
+            continue
+        if python_cli_change(raw, context):
+            bucket = selected.setdefault("python_cli", {"files": [], "commands": list(PYTHON_CLI_COMMANDS)})
             bucket["files"].append(raw)
             continue
 

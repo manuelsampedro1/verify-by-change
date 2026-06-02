@@ -11,7 +11,7 @@ The problem: after a Codex edit, the next question is usually "what should I run
 - When reading a review packet, can carry its `## Repo Readiness` summary into the JSON envelope.
 - Detects staged, unstaged, and untracked files when scanning a working tree.
 - Can combine a base-ref diff with current working-tree changes when a Codex run has both committed and uncommitted edits.
-- Buckets the change into simple categories such as docs, shell, Python, web JS/TS, Node CLI context, config, Swift, GitHub Actions, and GitHub workflows.
+- Buckets the change into simple categories such as docs, shell, Python, Python CLI context, web JS/TS, Node CLI context, config, Swift, GitHub Actions, and GitHub workflows.
 - Prints a compact checklist with the most likely verification commands.
 - Supports JSON output for automation.
 - Supports an optional JSON envelope with schema, source, changed files, empty state, and categories.
@@ -57,6 +57,12 @@ Node CLI packages with `bin` plus test/build/lint/check scripts get CLI/runtime 
 
 ```sh
 python3 verify_by_change.py --repo /path/to/node-cli --json
+```
+
+Python CLI packages with `pyproject.toml` `[project.scripts]` get install-and-smoke guidance when entrypoint paths change:
+
+```sh
+python3 verify_by_change.py --repo /path/to/python-cli --json
 ```
 
 JSON mode:

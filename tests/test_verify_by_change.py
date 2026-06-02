@@ -10,7 +10,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from verify_by_change import classify, json_envelope, matching_path_rule, parse_status_paths, render_text, repo_changed_files, repo_context, review_packet_changed_files, review_packet_readiness, unique_ordered  # noqa: E402
+from verify_by_change import classify, has_pyproject_scripts, json_envelope, matching_path_rule, parse_status_paths, render_text, repo_changed_files, repo_context, review_packet_changed_files, review_packet_readiness, unique_ordered  # noqa: E402
 
 
 def run(*args: str, cwd: pathlib.Path) -> None:
@@ -49,6 +49,15 @@ class VerifyByChangeTests(unittest.TestCase):
         self.assertIn("Node test/build", " ".join(classified["node_cli"]["commands"]))
         self.assertNotIn("web", classified)
 
+    def test_python_cli_context_classifies_entrypoint_changes(self) -> None:
+        classified = classify(["pyproject.toml", "src/demo/cli.py", "src/demo/core.py"], {"python_cli": True})
+
+        self.assertEqual(classified["python_cli"]["files"], ["pyproject.toml", "src/demo/cli.py", "src/demo/core.py"])
+        self.assertIn("pip install -e", " ".join(classified["python_cli"]["commands"]))
+        self.assertIn("console script", " ".join(classified["python_cli"]["commands"]))
+        self.assertNotIn("config", classified)
+        self.assertNotIn("python", classified)
+
     def test_repo_context_detects_node_cli_package(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             repo = pathlib.Path(raw)
@@ -62,7 +71,23 @@ class VerifyByChangeTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            self.assertEqual(repo_context(repo), {"node_cli": True})
+            self.assertEqual(repo_context(repo), {"node_cli": True, "python_cli": False})
+
+    def test_repo_context_detects_python_cli_pyproject(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = pathlib.Path(raw)
+            (repo / "pyproject.toml").write_text(
+                """[project]
+name = "demo"
+
+[project.scripts]
+demo = "demo.cli:main"
+""",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(has_pyproject_scripts((repo / "pyproject.toml").read_text(encoding="utf-8")))
+            self.assertEqual(repo_context(repo), {"node_cli": False, "python_cli": True})
 
     def test_matching_path_rule_handles_windows_separators_and_case(self) -> None:
         workflow_rule = matching_path_rule(".GITHUB\\workflows\\CI.YML")
@@ -483,6 +508,44 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["node_cli"]["files"], ["src/cli.js"])
             self.assertIn("Node test/build", " ".join(payload["node_cli"]["commands"]))
             self.assertNotIn("web", payload)
+
+    def test_cli_repo_scan_uses_python_cli_context(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = pathlib.Path(raw)
+            run("git", "init", cwd=repo)
+            run("git", "config", "user.name", "Test User", cwd=repo)
+            run("git", "config", "user.email", "test@example.com", cwd=repo)
+            (repo / "pyproject.toml").write_text(
+                """[project]
+name = "demo"
+
+[project.scripts]
+demo = "demo.cli:main"
+""",
+                encoding="utf-8",
+            )
+            run("git", "add", "pyproject.toml", cwd=repo)
+            run("git", "commit", "-m", "initial", cwd=repo)
+            (repo / "src" / "demo").mkdir(parents=True)
+            (repo / "src" / "demo" / "cli.py").write_text("def main():\n    return 0\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "verify_by_change.py"),
+                    "--repo",
+                    str(repo),
+                    "--json",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["python_cli"]["files"], ["src/demo/cli.py"])
+            self.assertIn("pip install -e", " ".join(payload["python_cli"]["commands"]))
+            self.assertNotIn("python", payload)
 
     def test_cli_can_read_paths_from_review_packet(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
