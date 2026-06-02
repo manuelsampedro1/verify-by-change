@@ -150,6 +150,20 @@ def render_text(classified: dict[str, dict[str, list[str]]]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def json_envelope(
+    paths: list[str],
+    classified: dict[str, dict[str, list[str]]],
+    source: dict[str, str | bool | None],
+) -> dict[str, object]:
+    return {
+        "schema_version": "verify-by-change.v1",
+        "source": source,
+        "changed_files": paths,
+        "empty": len(paths) == 0,
+        "categories": classified,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*", help="Explicit changed file paths.")
@@ -163,6 +177,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--fail-on-empty", action="store_true", help="Exit with code 2 when no changed files are detected.")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of Markdown.")
+    parser.add_argument("--json-envelope", action="store_true", help="Emit JSON with schema, source, changed files, and categories.")
     parser.add_argument("--output", help="Optional output file path.")
     return parser.parse_args()
 
@@ -177,20 +192,38 @@ def write_or_print(output: str, output_path: str | None) -> None:
 
 def main() -> int:
     args = parse_args()
+    source: dict[str, str | bool | None]
     if args.paths:
         paths = args.paths
+        source = {
+            "type": "explicit_paths",
+            "repo": None,
+            "base": None,
+            "staged": False,
+            "include_working_tree": False,
+        }
     elif args.repo:
+        repo = pathlib.Path(args.repo).resolve()
         paths = repo_changed_files(
-            pathlib.Path(args.repo).resolve(),
+            repo,
             args.base,
             staged=args.staged,
             include_working_tree=args.include_working_tree,
         )
+        source = {
+            "type": "git",
+            "repo": str(repo),
+            "base": args.base,
+            "staged": args.staged,
+            "include_working_tree": args.include_working_tree,
+        }
     else:
         raise SystemExit("Provide explicit paths or --repo.")
 
     classified = classify(paths)
-    if args.json:
+    if args.json_envelope:
+        output = json.dumps(json_envelope(paths, classified, source), indent=2) + "\n"
+    elif args.json:
         output = json.dumps(classified, indent=2) + "\n"
     else:
         output = render_text(classified)

@@ -49,3 +49,13 @@ Rationale:
 - Some review flows want only the committed PR diff against a base ref.
 - Codex sessions often have both committed follow-ups and local draft edits in the same repo.
 - Making the merged mode explicit avoids surprising CI users while still supporting full-session verification.
+
+## JSON Envelope for Automation
+
+Keep legacy `--json` as the category map, and add `--json-envelope` for automation that needs metadata.
+
+Rationale:
+
+- Existing callers may expect the compact category object.
+- Gates and downstream tools need schema, source, changed files, and empty-state metadata.
+- Making the richer shape opt-in avoids a breaking output change while still supporting machine-readable handoffs.

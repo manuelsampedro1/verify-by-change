@@ -12,6 +12,7 @@ The problem: after a Codex edit, the next question is usually "what should I run
 - Buckets the change into simple categories such as docs, shell, Python, JS/TS, config, and Swift.
 - Prints a compact checklist with the most likely verification commands.
 - Supports JSON output for automation.
+- Supports an optional JSON envelope with schema, source, changed files, empty state, and categories.
 - Writes output to a file when a handoff artifact is needed.
 - Prints an explicit empty-change message, with `--fail-on-empty` for CI guards.
 
@@ -42,6 +43,12 @@ JSON mode:
 
 ```sh
 python3 verify_by_change.py --repo . --json
+```
+
+JSON envelope for automation:
+
+```sh
+python3 verify_by_change.py --repo . --json-envelope --output /tmp/verification-checklist.json
 ```
 
 Staged-only check:
@@ -82,6 +89,7 @@ python3 -m py_compile verify_by_change.py
 python3 -m unittest discover -s tests
 python3 verify_by_change.py verify_by_change.py README.md >/tmp/verify-output.txt
 python3 verify_by_change.py --repo . --staged --json --output /tmp/verify-staged.json
+python3 verify_by_change.py verify_by_change.py README.md --json-envelope >/tmp/verify-envelope.json
 python3 verify_by_change.py --repo . --base HEAD --include-working-tree >/tmp/verify-base-plus-working-tree.txt
 python3 verify_by_change.py --repo . --fail-on-empty >/tmp/verify-empty-check.txt || test $? -eq 2
 test -s /tmp/verify-output.txt

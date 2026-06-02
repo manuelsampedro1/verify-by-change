@@ -10,7 +10,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from verify_by_change import classify, parse_status_paths, render_text, repo_changed_files, unique_ordered  # noqa: E402
+from verify_by_change import classify, json_envelope, parse_status_paths, render_text, repo_changed_files, unique_ordered  # noqa: E402
 
 
 def run(*args: str, cwd: pathlib.Path) -> None:
@@ -41,6 +41,25 @@ class VerifyByChangeTests(unittest.TestCase):
 
         self.assertIn("No changed files detected.", checklist)
         self.assertIn("Confirm the target ref", checklist)
+
+    def test_json_envelope_includes_schema_source_and_empty_state(self) -> None:
+        payload = json_envelope(
+            ["README.md"],
+            classify(["README.md"]),
+            {
+                "type": "explicit_paths",
+                "repo": None,
+                "base": None,
+                "staged": False,
+                "include_working_tree": False,
+            },
+        )
+
+        self.assertEqual(payload["schema_version"], "verify-by-change.v1")
+        self.assertEqual(payload["changed_files"], ["README.md"])
+        self.assertFalse(payload["empty"])
+        self.assertEqual(payload["source"]["type"], "explicit_paths")
+        self.assertIn("docs", payload["categories"])
 
     def test_parse_status_paths_handles_renames(self) -> None:
         output = " M README.md\nA  script.sh\nR  old.txt -> new.txt\n?? scratch.js\n"
@@ -164,6 +183,64 @@ class CliTests(unittest.TestCase):
 
             self.assertIn("Wrote verification checklist", result.stdout)
             self.assertEqual(json.loads(out.read_text(encoding="utf-8")), {})
+
+    def test_cli_json_envelope_output_file(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            out = pathlib.Path(raw) / "checks-envelope.json"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "verify_by_change.py"),
+                    "README.md",
+                    "app.js",
+                    "--json-envelope",
+                    "--output",
+                    str(out),
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            self.assertIn("Wrote verification checklist", result.stdout)
+            payload = json.loads(out.read_text(encoding="utf-8"))
+            self.assertEqual(payload["schema_version"], "verify-by-change.v1")
+            self.assertEqual(payload["source"]["type"], "explicit_paths")
+            self.assertEqual(payload["changed_files"], ["README.md", "app.js"])
+            self.assertFalse(payload["empty"])
+            self.assertEqual(payload["categories"]["docs"]["files"], ["README.md"])
+            self.assertEqual(payload["categories"]["web"]["files"], ["app.js"])
+
+    def test_cli_json_envelope_marks_empty_repo_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = pathlib.Path(raw) / "repo"
+            repo.mkdir()
+            run("git", "init", cwd=repo)
+            run("git", "config", "user.name", "Test User", cwd=repo)
+            run("git", "config", "user.email", "test@example.com", cwd=repo)
+            (repo / "README.md").write_text("initial\n", encoding="utf-8")
+            run("git", "add", "README.md", cwd=repo)
+            run("git", "commit", "-m", "initial", cwd=repo)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "verify_by_change.py"),
+                    "--repo",
+                    str(repo),
+                    "--json-envelope",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["empty"])
+            self.assertEqual(payload["changed_files"], [])
+            self.assertEqual(payload["categories"], {})
+            self.assertEqual(payload["source"]["type"], "git")
+            self.assertEqual(pathlib.Path(payload["source"]["repo"]).resolve(), repo.resolve())
 
     def test_cli_can_include_base_diff_and_working_tree(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
