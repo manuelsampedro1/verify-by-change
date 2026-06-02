@@ -19,10 +19,10 @@ def run(*args: str, cwd: pathlib.Path) -> None:
 
 class VerifyByChangeTests(unittest.TestCase):
     def test_classifies_known_extensions_and_uncategorized_files(self) -> None:
-        classified = classify(["README.md", "scripts/deploy.sh", ".github/workflows/ci.yml", "Sources/App.swift", "asset.bin"])
+        classified = classify(["README.md", "scripts/setup.sh", ".github/workflows/ci.yml", "Sources/App.swift", "asset.bin"])
 
         self.assertEqual(classified["docs"]["files"], ["README.md"])
-        self.assertEqual(classified["shell"]["files"], ["scripts/deploy.sh"])
+        self.assertEqual(classified["shell"]["files"], ["scripts/setup.sh"])
         self.assertEqual(classified["github_workflow"]["files"], [".github/workflows/ci.yml"])
         self.assertEqual(classified["swift"]["files"], ["Sources/App.swift"])
         self.assertEqual(classified["uncategorized"]["files"], ["asset.bin"])
@@ -35,6 +35,31 @@ class VerifyByChangeTests(unittest.TestCase):
         self.assertEqual(classified["github_workflow"]["files"], [".github/workflows/deploy-gate.yaml"])
         self.assertIn("workflow triggers", " ".join(classified["github_workflow"]["commands"]))
         self.assertEqual(classified["config"]["files"], ["config/settings.yml"])
+
+    def test_secret_material_paths_get_secret_hygiene_guidance(self) -> None:
+        classified = classify([".env", "config/private-key.pem", "README.md"])
+
+        self.assertEqual(classified["secret_material"]["files"], [".env", "config/private-key.pem"])
+        self.assertIn("rotate", " ".join(classified["secret_material"]["commands"]))
+        self.assertEqual(classified["docs"]["files"], ["README.md"])
+
+    def test_security_sensitive_paths_get_negative_path_guidance(self) -> None:
+        classified = classify(["permission_protocol/client.py", "src/approval-server.ts", "scripts/deploy.sh"])
+
+        self.assertEqual(
+            classified["security_sensitive"]["files"],
+            ["permission_protocol/client.py", "src/approval-server.ts", "scripts/deploy.sh"],
+        )
+        self.assertIn("negative path", " ".join(classified["security_sensitive"]["commands"]))
+        self.assertNotIn("python", classified)
+        self.assertNotIn("web", classified)
+        self.assertNotIn("shell", classified)
+
+    def test_workflow_rules_precede_security_sensitive_path_tokens(self) -> None:
+        classified = classify([".github/workflows/deploy.yml"])
+
+        self.assertEqual(classified["github_workflow"]["files"], [".github/workflows/deploy.yml"])
+        self.assertNotIn("security_sensitive", classified)
 
     def test_js_paths_stay_web_without_node_cli_context(self) -> None:
         classified = classify(["app.js"])

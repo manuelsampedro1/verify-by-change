@@ -89,3 +89,13 @@ Rationale:
 - Reviewers sometimes have the packet artifact but not the original repo state.
 - Reusing the packet's changed-file section keeps verification guidance aligned with the review handoff.
 - The packet remains only a source of paths; it is not treated as proof that checks were executed.
+
+## Secret and Permission Paths Before Generic Extensions
+
+Classify secret material and authorization, approval, permission, receipt, guard, and deploy paths before generic language or config rules.
+
+Rationale:
+
+- A changed `.env`, private key fixture, approval handler, or deploy guard needs a different closeout than a generic Python, shell, or docs edit.
+- Agent closeouts should include negative-path and leakage checks for permission-sensitive work.
+- The rule remains path-based and conservative; it raises review questions without pretending to inspect diff contents.

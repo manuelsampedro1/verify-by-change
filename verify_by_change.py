@@ -21,6 +21,40 @@ PYTHON_CLI_COMMANDS = [
     "Exercise the affected console script with `--help` or a small safe input.",
     "Run `python3 -m unittest discover -s tests` or the closest targeted Python tests.",
 ]
+SECRET_MATERIAL_COMMANDS = [
+    "Inspect the diff for real credentials, private keys, API tokens, webhook URLs, or production identifiers.",
+    "If a real secret was committed, rotate it and remove it from git history before publishing.",
+    "Run the closest secret scanning or pre-commit check if one exists.",
+]
+SECURITY_SENSITIVE_COMMANDS = [
+    "Run targeted tests for authorization, denial, expiry, approval, and failure paths.",
+    "Exercise at least one negative path; do not verify only the happy path.",
+    "Review logs, errors, and receipts for accidental secret or approval-payload leakage.",
+]
+SECRET_FILENAMES = {
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+    ".env.test",
+}
+SECRET_SUFFIXES = {".pem", ".key", ".p12", ".pfx"}
+SECRET_TOKENS = {"secret", "secrets", "credential", "credentials", "token", "tokens", "private", "key"}
+SECURITY_TOKENS = {
+    "auth",
+    "authorize",
+    "authorization",
+    "approval",
+    "approvals",
+    "deploy",
+    "guard",
+    "permission",
+    "permissions",
+    "policy",
+    "policies",
+    "receipt",
+    "receipts",
+}
 
 RULES = OrderedDict(
     [
@@ -105,7 +139,26 @@ def matching_path_rule(raw: str) -> tuple[str, dict[str, object]] | None:
             return name, rule
         if normalized.startswith(".github/workflows/") and suffix in rule.get("workflow_suffixes", set()):
             return name, rule
+    if secret_material_change(normalized):
+        return "secret_material", {"commands": SECRET_MATERIAL_COMMANDS}
+    if security_sensitive_change(normalized):
+        return "security_sensitive", {"commands": SECURITY_SENSITIVE_COMMANDS}
     return None
+
+
+def path_tokens(normalized: str) -> set[str]:
+    return {token for token in re.split(r"[/._-]+", normalized) if token}
+
+
+def secret_material_change(normalized: str) -> bool:
+    path = pathlib.Path(normalized)
+    if path.name in SECRET_FILENAMES or path.suffix in SECRET_SUFFIXES:
+        return True
+    return bool(path_tokens(normalized) & SECRET_TOKENS)
+
+
+def security_sensitive_change(normalized: str) -> bool:
+    return bool(path_tokens(normalized) & SECURITY_TOKENS)
 
 
 def parse_status_paths(output: str) -> list[str]:
