@@ -13,6 +13,8 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run tests
-        run: python -m unittest discover -s tests
+        run: make test
       - name: Compile CLI
-        run: python -m py_compile verify_by_change.py
+        run: make build
+      - name: Lint preflight
+        run: make lint

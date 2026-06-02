@@ -1,0 +1,34 @@
+{
+  "schema_version": "verify-by-change.v1",
+  "source": {
+    "type": "explicit_paths",
+    "repo": null,
+    "base": null,
+    "staged": false,
+    "include_working_tree": false
+  },
+  "changed_files": [
+    "README.md",
+    "verify_by_change.py"
+  ],
+  "empty": false,
+  "categories": {
+    "docs": {
+      "files": [
+        "README.md"
+      ],
+      "commands": [
+        "Review rendered Markdown and verify links if public-facing."
+      ]
+    },
+    "python": {
+      "files": [
+        "verify_by_change.py"
+      ],
+      "commands": [
+        "Run `python3 -m py_compile` on changed Python files.",
+        "Run the closest targeted script or tests."
+      ]
+    }
+  }
+}

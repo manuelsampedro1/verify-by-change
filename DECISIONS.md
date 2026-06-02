@@ -59,3 +59,13 @@ Rationale:
 - Existing callers may expect the compact category object.
 - Gates and downstream tools need schema, source, changed files, and empty-state metadata.
 - Making the richer shape opt-in avoids a breaking output change while still supporting machine-readable handoffs.
+
+## Repo Readiness Contract
+
+Expose standard verification targets, package metadata, examples, license, and an agent contract even though the implementation remains a single-file CLI.
+
+Rationale:
+
+- A small repo still needs fast local reproduction for reviewers and automation.
+- Standard `make test`, `make build`, and `make lint` commands make CI parity obvious.
+- Keeping metadata lightweight improves trust without adding runtime dependencies or fake complexity.

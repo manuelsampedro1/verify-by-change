@@ -27,6 +27,12 @@ I wanted a default verification layer that is small enough to trust and easy to 
 
 ## Quick Start
 
+Install locally when you want the `verify-by-change` command on your PATH:
+
+```sh
+python3 -m pip install -e .
+```
+
 Against the current repo:
 
 ```sh
@@ -80,11 +86,18 @@ python3 verify_by_change.py --repo . --json --output /tmp/verification-checklist
 
 Working v1 with built-in rules. It is intentionally small and conservative.
 
+## Examples
+
+- `examples/verification-envelope.json`: stable JSON envelope shape for automation handoffs.
+
 ## Verification
 
 Run from this repo:
 
 ```sh
+make test
+make build
+make lint
 python3 -m py_compile verify_by_change.py
 python3 -m unittest discover -s tests
 python3 verify_by_change.py verify_by_change.py README.md >/tmp/verify-output.txt
@@ -99,4 +112,8 @@ test -s /tmp/verify-output.txt
 
 - `verify_by_change.py`: CLI entrypoint.
 - `tests/`: working-tree detection, renderer, and CLI coverage.
+- `examples/`: stable output examples for review and automation.
+- `Makefile`: standard local verification targets.
+- `pyproject.toml`: package metadata and CLI entrypoint.
+- `AGENTS.md`: agent-facing maintenance contract.
 - `DECISIONS.md`: repo design notes.
